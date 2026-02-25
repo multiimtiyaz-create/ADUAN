@@ -18,8 +18,26 @@ import {
   Shield,
   Lock,
   Clock,
-  AlertCircle
+  AlertCircle,
+  BarChart3,
+  PieChart as PieChartIcon,
+  TrendingUp
 } from 'lucide-react';
+import {
+  BarChart,
+  Bar,
+  XAxis,
+  YAxis,
+  CartesianGrid,
+  Tooltip,
+  ResponsiveContainer,
+  PieChart,
+  Pie,
+  Cell,
+  Legend,
+  AreaChart,
+  Area
+} from 'recharts';
 
 // ==========================================
 // SILA MASUKKAN URL GOOGLE APPS SCRIPT ANDA
@@ -64,13 +82,14 @@ declare global {
   }
 }
 
-// Fungsi untuk tukar URL Google Drive kepada URL Thumbnail (Lakaran Kecil)
+// Fungsi untuk tukar URL Google Drive kepada URL Paparan Terus yang stabil
 const getThumbnailUrl = (url: string) => {
   if (!url) return '';
-  const match = url.match(/\/d\/([a-zA-Z0-9_-]+)/);
+  // Cari ID fail daripada format /d/ID atau id=ID
+  const match = url.match(/\/d\/([a-zA-Z0-9_-]+)/) || url.match(/[?&]id=([a-zA-Z0-9_-]+)/);
   if (match && match[1]) {
-    // Guna API thumbnail Google Drive supaya imej boleh dipapar dalam tag <img>
-    return `https://drive.google.com/thumbnail?id=${match[1]}&sz=w200-h200`;
+    // Guna endpoint lh3 yang lebih stabil untuk embedding terus dalam tag <img>
+    return `https://lh3.googleusercontent.com/d/${match[1]}`;
   }
   return url;
 };
@@ -333,6 +352,14 @@ export default function App() {
           </button>
 
           <button 
+            onClick={() => setActiveTab('analysis')}
+            className={`w-full flex items-center gap-3 px-4 py-3 rounded-lg transition-colors ${activeTab === 'analysis' ? 'bg-blue-600 text-white' : 'text-slate-300 hover:bg-slate-800'}`}
+          >
+            <BarChart3 className="w-5 h-5" />
+            <span className="font-medium">Analisa Aduan</span>
+          </button>
+
+          <button 
             onClick={() => setActiveTab('report')}
             className={`w-full flex items-center gap-3 px-4 py-3 rounded-lg transition-colors ${activeTab === 'report' ? 'bg-blue-600 text-white' : 'text-slate-300 hover:bg-slate-800'}`}
           >
@@ -532,6 +559,139 @@ export default function App() {
           </div>
         )}
 
+        {/* --- Analisa Aduan --- */}
+        {activeTab === 'analysis' && (
+          <div className="space-y-8 animate-in fade-in">
+            <div>
+              <h2 className="text-2xl font-bold text-slate-800">Analisa Aduan</h2>
+              <p className="text-slate-500">Visualisasi data aduan kerosakan SMK KOLOMBONG.</p>
+            </div>
+
+            {isLoadingData ? (
+              <div className="p-20 text-center text-slate-500 flex flex-col items-center">
+                <Loader2 className="w-12 h-12 animate-spin mb-4 text-blue-600" />
+                <p className="text-lg font-medium">Menganalisa data...</p>
+              </div>
+            ) : (
+              <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
+                
+                {/* Status Distribution */}
+                <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-100">
+                  <h3 className="text-lg font-bold text-slate-800 mb-6 flex items-center gap-2">
+                    <PieChartIcon className="w-5 h-5 text-blue-600" />
+                    Agihan Status Aduan
+                  </h3>
+                  <div className="h-80">
+                    <ResponsiveContainer width="100%" height="100%">
+                      <PieChart>
+                        <Pie
+                          data={[
+                            { name: 'Baru', value: reports.filter(r => (r.status || 'Baru').toLowerCase() === 'baru').length },
+                            { name: 'Dalam Proses', value: reports.filter(r => r.status?.toLowerCase() === 'dalam proses').length },
+                            { name: 'Selesai', value: reports.filter(r => r.status?.toLowerCase() === 'selesai').length },
+                            { name: 'Ditolak', value: reports.filter(r => r.status?.toLowerCase() === 'ditolak').length },
+                          ].filter(d => d.value > 0)}
+                          cx="50%"
+                          cy="50%"
+                          innerRadius={60}
+                          outerRadius={80}
+                          paddingAngle={5}
+                          dataKey="value"
+                        >
+                          <Cell fill="#3b82f6" /> {/* Blue */}
+                          <Cell fill="#eab308" /> {/* Yellow */}
+                          <Cell fill="#22c55e" /> {/* Green */}
+                          <Cell fill="#ef4444" /> {/* Red */}
+                        </Pie>
+                        <Tooltip />
+                        <Legend />
+                      </PieChart>
+                    </ResponsiveContainer>
+                  </div>
+                </div>
+
+                {/* Top Locations */}
+                <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-100">
+                  <h3 className="text-lg font-bold text-slate-800 mb-6 flex items-center gap-2">
+                    <BarChart3 className="w-5 h-5 text-blue-600" />
+                    Top 5 Lokasi Kerosakan
+                  </h3>
+                  <div className="h-80">
+                    <ResponsiveContainer width="100%" height="100%">
+                      <BarChart
+                        layout="vertical"
+                        data={Object.entries(
+                          reports.reduce((acc: any, r) => {
+                            acc[r.tempat] = (acc[r.tempat] || 0) + 1;
+                            return acc;
+                          }, {})
+                        )
+                          .sort((a: any, b: any) => b[1] - a[1])
+                          .slice(0, 5)
+                          .map(([name, value]) => ({ name, value }))}
+                        margin={{ left: 40, right: 20 }}
+                      >
+                        <CartesianGrid strokeDasharray="3 3" horizontal={false} />
+                        <XAxis type="number" hide />
+                        <YAxis type="category" dataKey="name" width={100} fontSize={12} />
+                        <Tooltip cursor={{ fill: '#f8fafc' }} />
+                        <Bar dataKey="value" fill="#3b82f6" radius={[0, 4, 4, 0]} barSize={30} />
+                      </BarChart>
+                    </ResponsiveContainer>
+                  </div>
+                </div>
+
+                {/* Trend Over Time */}
+                <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-100 lg:col-span-2">
+                  <h3 className="text-lg font-bold text-slate-800 mb-6 flex items-center gap-2">
+                    <TrendingUp className="w-5 h-5 text-blue-600" />
+                    Trend Aduan Bulanan
+                  </h3>
+                  <div className="h-80">
+                    <ResponsiveContainer width="100%" height="100%">
+                      <AreaChart
+                        data={(() => {
+                          const months: any = {};
+                          reports.forEach(r => {
+                            try {
+                              // Parse date "25/02/2026, 08:00:00"
+                              const parts = r.tarikh.split(',')[0].split('/');
+                              if (parts.length === 3) {
+                                const monthYear = `${parts[1]}/${parts[2]}`; // MM/YYYY
+                                months[monthYear] = (months[monthYear] || 0) + 1;
+                              }
+                            } catch (e) {}
+                          });
+                          return Object.entries(months)
+                            .map(([name, value]) => ({ name, value }))
+                            .sort((a, b) => {
+                              const [mA, yA] = a.name.split('/').map(Number);
+                              const [mB, yB] = b.name.split('/').map(Number);
+                              return yA !== yB ? yA - yB : mA - mB;
+                            });
+                        })()}
+                      >
+                        <defs>
+                          <linearGradient id="colorValue" x1="0" y1="0" x2="0" y2="1">
+                            <stop offset="5%" stopColor="#3b82f6" stopOpacity={0.1}/>
+                            <stop offset="95%" stopColor="#3b82f6" stopOpacity={0}/>
+                          </linearGradient>
+                        </defs>
+                        <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
+                        <XAxis dataKey="name" fontSize={12} tickMargin={10} />
+                        <YAxis fontSize={12} tickMargin={10} />
+                        <Tooltip />
+                        <Area type="monotone" dataKey="value" stroke="#3b82f6" fillOpacity={1} fill="url(#colorValue)" strokeWidth={3} />
+                      </AreaChart>
+                    </ResponsiveContainer>
+                  </div>
+                </div>
+
+              </div>
+            )}
+          </div>
+        )}
+
         {/* --- Senarai Aduan --- */}
         {activeTab === 'list' && (
           <div className="space-y-6 animate-in fade-in">
@@ -615,7 +775,6 @@ export default function App() {
                                 src={getThumbnailUrl(report.gambar)} 
                                 alt="Gambar Kerosakan" 
                                 className="w-16 h-16 object-cover bg-slate-50"
-                                crossOrigin="anonymous"
                                 onError={(e) => {
                                   const target = e.target as HTMLImageElement;
                                   target.onerror = null;
