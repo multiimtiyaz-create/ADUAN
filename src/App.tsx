@@ -14,13 +14,17 @@ import {
   User,
   Calendar,
   Loader2,
-  Download
+  Download,
+  Shield,
+  Lock,
+  Clock,
+  AlertCircle
 } from 'lucide-react';
 
 // ==========================================
 // SILA MASUKKAN URL GOOGLE APPS SCRIPT ANDA
 // ==========================================
-const SCRIPT_URL = 'https://script.google.com/macros/s/AKfycby8hpRtUPkXIE8id59qTOcxPvgj26lexqak0AZ47OTMIzOu09vI5U_govc5Uibho-jL/exec';
+const SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbxE0Poc9EHgun7YngHyXwUO-7iWlmn6ocKZUGFjI29d34w0zHbYyJ_dnbYgphkRlozX/exec';
 
 const CSV_TEACHERS = 'https://docs.google.com/spreadsheets/d/e/2PACX-1vQK1iQjcMX49LNY0VmT93sFGtC_tn2PgHWjr2WQSZjqIrgGteTAJqebNgwkHmfAXtEPJmnAnUm9onS6/pub?output=csv';
 const CSV_REPORTS = 'https://docs.google.com/spreadsheets/d/e/2PACX-1vQK1iQjcMX49LNY0VmT93sFGtC_tn2PgHWjr2WQSZjqIrgGteTAJqebNgwkHmfAXtEPJmnAnUm9onS6/pub?gid=798141725&single=true&output=csv';
@@ -32,6 +36,7 @@ interface Report {
   tempat: string;
   jenisKerosakan: string;
   gambar: string;
+  status: string;
 }
 
 interface FormData {
@@ -78,6 +83,13 @@ export default function App() {
   const [isLoadingData, setIsLoadingData] = useState(true);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isDownloading, setIsDownloading] = useState(false); // State untuk muat turun PDF
+  const [isPrinting, setIsPrinting] = useState(false); // State untuk cetakan
+  
+  // Admin State
+  const [isAdmin, setIsAdmin] = useState(false);
+  const [showLoginModal, setShowLoginModal] = useState(false);
+  const [adminPassword, setAdminPassword] = useState('');
+  const [isUpdatingStatus, setIsUpdatingStatus] = useState<string | null>(null);
 
   // Form State
   const [formData, setFormData] = useState<FormData>({
@@ -109,7 +121,7 @@ export default function App() {
         const textReports = await resReports.text();
         const rowsR = textReports.split('\n').map(r => r.trim()).filter(r => r);
         
-        // Parse Laporan: ID | TARIKH | NAMA GURU | TEMPAT | JENIS KEROSAKAN | GAMBAR
+        // Parse Laporan: ID | TARIKH | NAMA GURU | TEMPAT | JENIS KEROSAKAN | GAMBAR | STATUS
         const reportList: Report[] = rowsR.slice(1).map(row => {
           // Guna regex untuk pecahkan CSV yang mungkin ada koma dalam teks (quotes)
           const cols = row.match(/(".*?"|[^",\s]+)(?=\s*,|\s*$)/g) || row.split(',');
@@ -121,7 +133,8 @@ export default function App() {
             namaGuru: clean(cols[2]),
             tempat: clean(cols[3]),
             jenisKerosakan: clean(cols[4]),
-            gambar: clean(cols[5])
+            gambar: clean(cols[5]),
+            status: clean(cols[6]) || 'Baru'
           };
         }).reverse(); // Reverse supaya yang terbaru di atas
 
@@ -178,7 +191,10 @@ export default function App() {
         headers: {
           'Content-Type': 'text/plain',
         },
-        body: JSON.stringify(formData)
+        body: JSON.stringify({
+          ...formData,
+          action: 'addReport'
+        })
       });
       
       // Cipta laporan mock tempatan sementara tunggu cache Google Sheets update (ambil masa ~5 minit)
@@ -188,7 +204,8 @@ export default function App() {
         namaGuru: formData.namaGuru,
         tempat: formData.tempat,
         jenisKerosakan: formData.jenisKerosakan,
-        gambar: formData.gambarPreview ? 'Sedang Dimuat Naik...' : 'Tiada Gambar'
+        gambar: formData.gambarPreview ? 'Sedang Dimuat Naik...' : 'Tiada Gambar',
+        status: 'Baru'
       };
       setReports([mockNewReport, ...reports]);
       
@@ -219,33 +236,69 @@ export default function App() {
     }
   };
 
-  // Fungsi Jana & Muat Turun PDF (Menggunakan html2pdf.js)
-  const handleDownloadPDF = () => {
-    setIsDownloading(true);
-    const element = document.getElementById('printable-area');
-
-    const opt = {
-      margin:       0.5,
-      filename:     'Senarai_Aduan_Kerosakan.pdf',
-      image:        { type: 'jpeg', quality: 0.98 },
-      html2canvas:  { scale: 2, useCORS: true },
-      jsPDF:        { unit: 'in', format: 'a4', orientation: 'landscape' }
-    };
-
-    const runPdf = () => {
-      window.html2pdf().set(opt).from(element).save().then(() => setIsDownloading(false));
-    };
-
-    // Muat skrip html2pdf secara dinamik jika tiada
-    if (window.html2pdf) {
-      runPdf();
+  // Fungsi Jana PDF / Cetak (Native & Stabil)
+  const handleGeneratePDF = () => {
+    // Tukar tab ke senarai jika belum
+    if (activeTab !== 'list') {
+      setActiveTab('list');
+      // Tunggu render sekejap
+      setTimeout(() => window.print(), 500);
     } else {
-      const script = document.createElement('script');
-      script.src = 'https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js';
-      script.onload = () => {
-        runPdf();
-      };
-      document.head.appendChild(script);
+      window.print();
+    }
+  };
+
+  const handleAdminLogin = (e: React.FormEvent) => {
+    e.preventDefault();
+    // Simple password check - in real app use backend auth
+    if (adminPassword === 'admin123') {
+      setIsAdmin(true);
+      setShowLoginModal(false);
+      setAdminPassword('');
+      setNotification('Selamat Datang, Admin!');
+      setTimeout(() => setNotification(''), 3000);
+    } else {
+      alert('Kata laluan salah!');
+    }
+  };
+
+  const updateReportStatus = async (reportId: string, newStatus: string) => {
+    if (!isAdmin) return;
+    setIsUpdatingStatus(reportId);
+    
+    try {
+      await fetch(SCRIPT_URL, {
+        method: 'POST',
+        mode: 'no-cors',
+        headers: {
+          'Content-Type': 'text/plain',
+        },
+        body: JSON.stringify({
+          action: 'updateStatus',
+          id: reportId,
+          status: newStatus
+        })
+      });
+      
+      // Update local state
+      setReports(prev => prev.map(r => r.id === reportId ? { ...r, status: newStatus } : r));
+      setNotification(`Status aduan ${reportId} dikemaskini ke ${newStatus}`);
+      setTimeout(() => setNotification(''), 3000);
+    } catch (error) {
+      console.error(error);
+      alert('Gagal mengemaskini status.');
+    } finally {
+      setIsUpdatingStatus(null);
+    }
+  };
+
+  const getStatusColor = (status: string) => {
+    switch (status?.toLowerCase()) {
+      case 'baru': return 'bg-blue-100 text-blue-700 border-blue-200';
+      case 'dalam proses': return 'bg-yellow-100 text-yellow-700 border-yellow-200';
+      case 'selesai': return 'bg-green-100 text-green-700 border-green-200';
+      case 'ditolak': return 'bg-red-100 text-red-700 border-red-200';
+      default: return 'bg-slate-100 text-slate-700 border-slate-200';
     }
   };
 
@@ -287,10 +340,72 @@ export default function App() {
             <span className="font-medium">Lapor Kerosakan</span>
           </button>
         </nav>
+
+        <div className="p-4 border-t border-slate-700">
+          {isAdmin ? (
+            <div className="flex flex-col gap-2">
+              <div className="flex items-center gap-2 text-green-400 text-sm font-medium px-2">
+                <Shield className="w-4 h-4" />
+                <span>Admin Mode</span>
+              </div>
+              <button 
+                onClick={() => setIsAdmin(false)}
+                className="w-full text-xs text-slate-400 hover:text-white text-left px-2"
+              >
+                Log Keluar
+              </button>
+            </div>
+          ) : (
+            <button 
+              onClick={() => setShowLoginModal(true)}
+              className="w-full flex items-center gap-3 px-4 py-2 text-slate-400 hover:text-white transition-colors text-sm"
+            >
+              <Lock className="w-4 h-4" />
+              <span>Login Admin</span>
+            </button>
+          )}
+        </div>
       </aside>
 
       {/* Main Content */}
       <main className="flex-1 overflow-y-auto p-4 md:p-8">
+        
+        {/* Login Modal */}
+        {showLoginModal && (
+          <div className="fixed inset-0 bg-slate-900/50 backdrop-blur-sm flex items-center justify-center z-[100] p-4">
+            <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md overflow-hidden animate-in zoom-in duration-200">
+              <div className="p-6 border-b border-slate-100 flex justify-between items-center">
+                <h3 className="text-xl font-bold text-slate-800 flex items-center gap-2">
+                  <Shield className="w-6 h-6 text-blue-600" />
+                  Admin Login
+                </h3>
+                <button onClick={() => setShowLoginModal(false)} className="text-slate-400 hover:text-slate-600">
+                  ✕
+                </button>
+              </div>
+              <form onSubmit={handleAdminLogin} className="p-6 space-y-4">
+                <div className="space-y-2">
+                  <label className="text-sm font-semibold text-slate-700">Kata Laluan Admin</label>
+                  <input 
+                    type="password" 
+                    value={adminPassword}
+                    onChange={(e) => setAdminPassword(e.target.value)}
+                    placeholder="Masukkan kata laluan..."
+                    className="w-full px-4 py-2.5 rounded-lg border border-slate-200 focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500"
+                    autoFocus
+                  />
+                  <p className="text-xs text-slate-500 italic">Petunjuk: admin123</p>
+                </div>
+                <button 
+                  type="submit"
+                  className="w-full bg-blue-600 hover:bg-blue-700 text-white font-bold py-3 rounded-xl shadow-lg shadow-blue-200 transition-all active:scale-95"
+                >
+                  Log Masuk
+                </button>
+              </form>
+            </div>
+          </div>
+        )}
         
         {notification && (
           <div className="fixed top-4 right-4 bg-green-500 text-white px-6 py-3 rounded-lg shadow-lg flex items-center gap-2 z-50 animate-bounce">
@@ -307,15 +422,51 @@ export default function App() {
               <p className="text-slate-500">Data ditarik secara langsung daripada Google Sheets.</p>
             </div>
 
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
               <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-100 flex items-center gap-4">
                 <div className="p-4 bg-blue-100 rounded-xl text-blue-600">
                   <FileText className="w-8 h-8" />
                 </div>
                 <div>
-                  <p className="text-sm font-medium text-slate-500">Jumlah Keseluruhan Aduan</p>
+                  <p className="text-sm font-medium text-slate-500">Jumlah Aduan</p>
                   <p className="text-4xl font-bold text-slate-800">
                     {isLoadingData ? <Loader2 className="w-8 h-8 animate-spin mt-1" /> : reports.length}
+                  </p>
+                </div>
+              </div>
+
+              <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-100 flex items-center gap-4">
+                <div className="p-4 bg-yellow-100 rounded-xl text-yellow-600">
+                  <Clock className="w-8 h-8" />
+                </div>
+                <div>
+                  <p className="text-sm font-medium text-slate-500">Dalam Proses</p>
+                  <p className="text-4xl font-bold text-slate-800">
+                    {isLoadingData ? <Loader2 className="w-8 h-8 animate-spin mt-1" /> : reports.filter(r => r.status?.toLowerCase() === 'dalam proses').length}
+                  </p>
+                </div>
+              </div>
+
+              <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-100 flex items-center gap-4">
+                <div className="p-4 bg-green-100 rounded-xl text-green-600">
+                  <CheckCircle className="w-8 h-8" />
+                </div>
+                <div>
+                  <p className="text-sm font-medium text-slate-500">Selesai</p>
+                  <p className="text-4xl font-bold text-slate-800">
+                    {isLoadingData ? <Loader2 className="w-8 h-8 animate-spin mt-1" /> : reports.filter(r => r.status?.toLowerCase() === 'selesai').length}
+                  </p>
+                </div>
+              </div>
+
+              <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-100 flex items-center gap-4">
+                <div className="p-4 bg-red-100 rounded-xl text-red-600">
+                  <AlertCircle className="w-8 h-8" />
+                </div>
+                <div>
+                  <p className="text-sm font-medium text-slate-500">Ditolak</p>
+                  <p className="text-4xl font-bold text-slate-800">
+                    {isLoadingData ? <Loader2 className="w-8 h-8 animate-spin mt-1" /> : reports.filter(r => r.status?.toLowerCase() === 'ditolak').length}
                   </p>
                 </div>
               </div>
@@ -338,10 +489,13 @@ export default function App() {
                 <div className="divide-y divide-slate-100">
                   {reports.slice(0, 5).map((report, idx) => (
                     <div key={idx} className="p-6 hover:bg-slate-50 transition-colors flex flex-col sm:flex-row gap-4 justify-between items-start">
-                      <div>
-                        <div className="flex items-center gap-2 mb-1">
+                      <div className="flex-1">
+                        <div className="flex items-center gap-2 mb-1 flex-wrap">
                           <span className="font-semibold text-slate-800">{report.id}</span>
                           <span className="text-sm text-blue-600 font-medium bg-blue-50 px-2 py-0.5 rounded">{report.tempat}</span>
+                          <span className={`text-[10px] uppercase tracking-wider font-bold px-2 py-0.5 rounded-full border ${getStatusColor(report.status)}`}>
+                            {report.status || 'Baru'}
+                          </span>
                         </div>
                         <p className="text-slate-700 text-sm mb-2 font-medium">{report.jenisKerosakan}</p>
                         <div className="flex items-center gap-4 text-xs text-slate-500">
@@ -389,20 +543,12 @@ export default function App() {
               
               <div className="flex items-center gap-3">
                 <button 
-                  onClick={handleDownloadPDF}
-                  disabled={isDownloading || isLoadingData}
-                  className="bg-white border border-slate-200 hover:bg-slate-50 text-slate-700 px-4 py-2 rounded-lg flex items-center gap-2 shadow-sm transition-colors disabled:opacity-50"
-                  title="Muat Turun sebagai PDF"
+                  onClick={handleGeneratePDF}
+                  className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg flex items-center gap-2 shadow-sm transition-all active:scale-95"
+                  title="Simpan Laporan sebagai PDF"
                 >
-                  {isDownloading ? <Loader2 className="w-5 h-5 text-slate-500 animate-spin" /> : <Download className="w-5 h-5 text-slate-500" />}
-                  <span className="hidden sm:inline font-medium">{isDownloading ? 'Menjana PDF...' : 'Muat Turun PDF'}</span>
-                </button>
-                <button 
-                  onClick={() => setActiveTab('report')}
-                  className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg flex items-center gap-2 shadow-sm transition-colors"
-                >
-                  <PlusCircle className="w-5 h-5" />
-                  <span className="hidden sm:inline font-medium">Lapor Baru</span>
+                  <Download className="w-5 h-5" />
+                  <span className="hidden sm:inline font-medium">Jana PDF / Cetak</span>
                 </button>
               </div>
             </div>
@@ -422,13 +568,14 @@ export default function App() {
                       <th className="p-4 font-semibold whitespace-nowrap">Nama Guru</th>
                       <th className="p-4 font-semibold">Tempat</th>
                       <th className="p-4 font-semibold">Jenis Kerosakan</th>
+                      <th className="p-4 font-semibold">Status</th>
                       <th className="p-4 font-semibold text-center">Gambar</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-100">
                     {isLoadingData ? (
                       <tr>
-                        <td colSpan={6} className="p-8 text-center text-slate-500">
+                        <td colSpan={7} className="p-8 text-center text-slate-500">
                           <div className="flex flex-col items-center justify-center">
                             <Loader2 className="w-6 h-6 animate-spin mb-2" />
                             Memuat turun...
@@ -442,6 +589,25 @@ export default function App() {
                         <td className="p-4 text-sm font-medium text-slate-800">{report.namaGuru}</td>
                         <td className="p-4 text-sm text-slate-600">{report.tempat}</td>
                         <td className="p-4 text-sm text-slate-800 max-w-xs">{report.jenisKerosakan}</td>
+                        <td className="p-4">
+                          {isAdmin ? (
+                            <select 
+                              value={report.status || 'Baru'}
+                              disabled={isUpdatingStatus === report.id}
+                              onChange={(e) => updateReportStatus(report.id, e.target.value)}
+                              className={`text-xs font-bold px-2 py-1 rounded border focus:ring-2 focus:ring-blue-500/20 outline-none transition-all ${getStatusColor(report.status)}`}
+                            >
+                              <option value="Baru">Baru</option>
+                              <option value="Dalam Proses">Dalam Proses</option>
+                              <option value="Selesai">Selesai</option>
+                              <option value="Ditolak">Ditolak</option>
+                            </select>
+                          ) : (
+                            <span className={`text-[10px] uppercase tracking-wider font-bold px-2 py-1 rounded border ${getStatusColor(report.status)}`}>
+                              {report.status || 'Baru'}
+                            </span>
+                          )}
+                        </td>
                         <td className="p-4 text-center">
                           {report.gambar && report.gambar.startsWith('http') ? (
                             <div className="inline-block rounded-lg overflow-hidden border border-slate-200" title="Gambar Kerosakan">
