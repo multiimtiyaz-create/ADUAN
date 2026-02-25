@@ -21,7 +21,9 @@ import {
   AlertCircle,
   BarChart3,
   PieChart as PieChartIcon,
-  TrendingUp
+  TrendingUp,
+  Menu,
+  X
 } from 'lucide-react';
 import {
   BarChart,
@@ -94,6 +96,35 @@ const getThumbnailUrl = (url: string) => {
   return url;
 };
 
+// Fungsi untuk format tarikh kepada DD/MM/YYYY dan buang masa
+const formatDate = (dateStr: string) => {
+  if (!dateStr) return '';
+  try {
+    // Ambil bahagian tarikh sahaja (sebelum ruang kosong atau koma)
+    const datePart = dateStr.split(/[ ,]/)[0];
+    const parts = datePart.split('/');
+    
+    if (parts.length === 3) {
+      let day, month, year;
+      // Jika format adalah M/D/YYYY (cth: 2/25/2026)
+      if (parseInt(parts[0]) <= 12 && parseInt(parts[1]) > 12) {
+        month = parts[0].padStart(2, '0');
+        day = parts[1].padStart(2, '0');
+      } 
+      // Jika format adalah D/M/YYYY (cth: 25/2/2026)
+      else {
+        day = parts[0].padStart(2, '0');
+        month = parts[1].padStart(2, '0');
+      }
+      year = parts[2];
+      return `${day}/${month}/${year}`;
+    }
+    return datePart;
+  } catch (e) {
+    return dateStr;
+  }
+};
+
 export default function App() {
   const [activeTab, setActiveTab] = useState('dashboard');
   const [reports, setReports] = useState<Report[]>([]);
@@ -103,6 +134,7 @@ export default function App() {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isDownloading, setIsDownloading] = useState(false); // State untuk muat turun PDF
   const [isPrinting, setIsPrinting] = useState(false); // State untuk cetakan
+  const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
   
   // Admin State
   const [isAdmin, setIsAdmin] = useState(false);
@@ -130,8 +162,10 @@ export default function App() {
         const textTeachers = await resTeachers.text();
         const rowsT = textTeachers.split('\n').map(r => r.trim()).filter(r => r);
         const teacherList = rowsT.slice(1).map(row => {
-          const cols = row.split(',');
-          return cols[1]?.replace(/^"|"$/g, '').trim();
+          const firstComma = row.indexOf(',');
+          if (firstComma === -1) return null;
+          const name = row.substring(firstComma + 1).replace(/^"|"$/g, '').trim();
+          return name;
         }).filter(Boolean).sort();
         setTeachers(teacherList);
 
@@ -142,13 +176,13 @@ export default function App() {
         
         // Parse Laporan: ID | TARIKH | NAMA GURU | TEMPAT | JENIS KEROSAKAN | GAMBAR | STATUS
         const reportList: Report[] = rowsR.slice(1).map(row => {
-          // Guna regex untuk pecahkan CSV yang mungkin ada koma dalam teks (quotes)
-          const cols = row.match(/(".*?"|[^",\s]+)(?=\s*,|\s*$)/g) || row.split(',');
+          // Guna regex yang lebih baik untuk pecahkan CSV (tidak pecah pada ruang kosong)
+          const cols = row.match(/(".*?"|[^",]+)(?=\s*,|\s*$)/g) || row.split(',');
           const clean = (str: string) => str ? str.replace(/^"|"$/g, '').trim() : '';
           
           return {
             id: clean(cols[0]),
-            tarikh: clean(cols[1]),
+            tarikh: formatDate(clean(cols[1])),
             namaGuru: clean(cols[2]),
             tempat: clean(cols[3]),
             jenisKerosakan: clean(cols[4]),
@@ -219,7 +253,7 @@ export default function App() {
       // Cipta laporan mock tempatan sementara tunggu cache Google Sheets update (ambil masa ~5 minit)
       const mockNewReport: Report = {
         id: 'Tunggu Update',
-        tarikh: new Date().toLocaleString('ms-MY'),
+        tarikh: new Date().toLocaleDateString('ms-MY'),
         namaGuru: formData.namaGuru,
         tempat: formData.tempat,
         jenisKerosakan: formData.jenisKerosakan,
@@ -324,9 +358,27 @@ export default function App() {
   return (
     <div className="min-h-screen bg-slate-50 flex flex-col md:flex-row font-sans">
       
+      {/* Mobile Header */}
+      <div className="md:hidden bg-slate-900 text-white p-4 flex justify-between items-center sticky top-0 z-50 shadow-md">
+        <div className="flex items-center gap-3">
+          <img src="https://i.postimg.cc/wB5dcNCN/logo-smk-kolombong.png" alt="Logo" className="w-8 h-8 object-contain" />
+          <span className="font-bold text-lg">Sistem Aduan</span>
+        </div>
+        <button 
+          onClick={() => setIsMobileMenuOpen(!isMobileMenuOpen)}
+          className="p-2 hover:bg-slate-800 rounded-lg transition-colors"
+        >
+          {isMobileMenuOpen ? <X className="w-6 h-6" /> : <Menu className="w-6 h-6" />}
+        </button>
+      </div>
+
       {/* Sidebar Navigation */}
-      <aside className="w-full md:w-64 bg-slate-900 text-white flex flex-col shadow-xl z-10">
-        <div className="p-6 flex items-center gap-3 border-b border-slate-700">
+      <aside className={`
+        fixed inset-y-0 left-0 z-40 w-64 bg-slate-900 text-white flex flex-col shadow-xl transition-transform duration-300 ease-in-out
+        md:relative md:translate-x-0
+        ${isMobileMenuOpen ? 'translate-x-0' : '-translate-x-full'}
+      `}>
+        <div className="p-6 hidden md:flex items-center gap-3 border-b border-slate-700">
           <img src="https://i.postimg.cc/wB5dcNCN/logo-smk-kolombong.png" alt="Logo SMK KOLOMBONG" className="w-10 h-10 object-contain" />
           <div>
             <h1 className="text-xl font-bold leading-tight">Sistem Aduan</h1>
@@ -334,9 +386,9 @@ export default function App() {
           </div>
         </div>
         
-        <nav className="flex-1 p-4 space-y-2">
+        <nav className="flex-1 p-4 space-y-2 mt-16 md:mt-0">
           <button 
-            onClick={() => setActiveTab('dashboard')}
+            onClick={() => { setActiveTab('dashboard'); setIsMobileMenuOpen(false); }}
             className={`w-full flex items-center gap-3 px-4 py-3 rounded-lg transition-colors ${activeTab === 'dashboard' ? 'bg-blue-600 text-white' : 'text-slate-300 hover:bg-slate-800'}`}
           >
             <LayoutDashboard className="w-5 h-5" />
@@ -344,7 +396,7 @@ export default function App() {
           </button>
           
           <button 
-            onClick={() => setActiveTab('list')}
+            onClick={() => { setActiveTab('list'); setIsMobileMenuOpen(false); }}
             className={`w-full flex items-center gap-3 px-4 py-3 rounded-lg transition-colors ${activeTab === 'list' ? 'bg-blue-600 text-white' : 'text-slate-300 hover:bg-slate-800'}`}
           >
             <FileText className="w-5 h-5" />
@@ -352,7 +404,7 @@ export default function App() {
           </button>
 
           <button 
-            onClick={() => setActiveTab('analysis')}
+            onClick={() => { setActiveTab('analysis'); setIsMobileMenuOpen(false); }}
             className={`w-full flex items-center gap-3 px-4 py-3 rounded-lg transition-colors ${activeTab === 'analysis' ? 'bg-blue-600 text-white' : 'text-slate-300 hover:bg-slate-800'}`}
           >
             <BarChart3 className="w-5 h-5" />
@@ -360,7 +412,7 @@ export default function App() {
           </button>
 
           <button 
-            onClick={() => setActiveTab('report')}
+            onClick={() => { setActiveTab('report'); setIsMobileMenuOpen(false); }}
             className={`w-full flex items-center gap-3 px-4 py-3 rounded-lg transition-colors ${activeTab === 'report' ? 'bg-blue-600 text-white' : 'text-slate-300 hover:bg-slate-800'}`}
           >
             <PlusCircle className="w-5 h-5" />
@@ -376,7 +428,7 @@ export default function App() {
                 <span>Admin Mode</span>
               </div>
               <button 
-                onClick={() => setIsAdmin(false)}
+                onClick={() => { setIsAdmin(false); setIsMobileMenuOpen(false); }}
                 className="w-full text-xs text-slate-400 hover:text-white text-left px-2"
               >
                 Log Keluar
@@ -384,7 +436,7 @@ export default function App() {
             </div>
           ) : (
             <button 
-              onClick={() => setShowLoginModal(true)}
+              onClick={() => { setShowLoginModal(true); setIsMobileMenuOpen(false); }}
               className="w-full flex items-center gap-3 px-4 py-2 text-slate-400 hover:text-white transition-colors text-sm"
             >
               <Lock className="w-4 h-4" />
@@ -393,6 +445,14 @@ export default function App() {
           )}
         </div>
       </aside>
+
+      {/* Overlay for mobile sidebar */}
+      {isMobileMenuOpen && (
+        <div 
+          className="fixed inset-0 bg-black/50 z-30 md:hidden"
+          onClick={() => setIsMobileMenuOpen(false)}
+        />
+      )}
 
       {/* Main Content */}
       <main className="flex-1 overflow-y-auto p-4 md:p-8">
@@ -719,7 +779,7 @@ export default function App() {
                 <h3 className="font-bold text-slate-700">Senarai Aduan SMK KOLOMBONG</h3>
                 <span className="text-xs text-slate-500">Tarikh Jana: {new Date().toLocaleDateString('ms-MY')}</span>
               </div>
-              <div className="overflow-x-auto">
+              <div className="overflow-x-auto hidden md:block">
                 <table className="w-full text-left border-collapse">
                   <thead>
                     <tr className="bg-slate-100 text-slate-600 text-sm border-b border-slate-200">
@@ -790,6 +850,60 @@ export default function App() {
                     ))}
                   </tbody>
                 </table>
+              </div>
+
+              {/* Mobile Card List */}
+              <div className="md:hidden divide-y divide-slate-100">
+                {isLoadingData ? (
+                  <div className="p-8 text-center text-slate-500">
+                    <Loader2 className="w-6 h-6 animate-spin mx-auto mb-2" />
+                    Memuat turun...
+                  </div>
+                ) : reports.map((report, idx) => (
+                  <div key={idx} className="p-4 space-y-3">
+                    <div className="flex justify-between items-start">
+                      <div>
+                        <span className="text-xs font-bold text-blue-600 bg-blue-50 px-2 py-1 rounded mb-1 inline-block">{report.id}</span>
+                        <h4 className="font-bold text-slate-800">{report.tempat}</h4>
+                      </div>
+                      {isAdmin ? (
+                        <select 
+                          value={report.status || 'Baru'}
+                          disabled={isUpdatingStatus === report.id}
+                          onChange={(e) => updateReportStatus(report.id, e.target.value)}
+                          className={`text-[10px] font-bold px-2 py-1 rounded border ${getStatusColor(report.status)}`}
+                        >
+                          <option value="Baru">Baru</option>
+                          <option value="Dalam Proses">Dalam Proses</option>
+                          <option value="Selesai">Selesai</option>
+                          <option value="Ditolak">Ditolak</option>
+                        </select>
+                      ) : (
+                        <span className={`text-[10px] uppercase tracking-wider font-bold px-2 py-1 rounded border ${getStatusColor(report.status)}`}>
+                          {report.status || 'Baru'}
+                        </span>
+                      )}
+                    </div>
+                    
+                    <p className="text-sm text-slate-700">{report.jenisKerosakan}</p>
+                    
+                    <div className="flex items-center justify-between text-xs text-slate-500">
+                      <div className="space-y-1">
+                        <div className="flex items-center gap-1"><User className="w-3 h-3"/> {report.namaGuru}</div>
+                        <div className="flex items-center gap-1"><Calendar className="w-3 h-3"/> {report.tarikh}</div>
+                      </div>
+                      {report.gambar && report.gambar.startsWith('http') && (
+                        <a href={report.gambar} target="_blank" rel="noopener noreferrer" className="shrink-0 rounded-lg overflow-hidden border border-slate-200">
+                          <img 
+                            src={getThumbnailUrl(report.gambar)} 
+                            alt="Kerosakan" 
+                            className="w-12 h-12 object-cover"
+                          />
+                        </a>
+                      )}
+                    </div>
+                  </div>
+                ))}
               </div>
             </div>
           </div>
