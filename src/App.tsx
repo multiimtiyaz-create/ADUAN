@@ -4,6 +4,7 @@
  */
 
 import React, { useState, useEffect } from 'react';
+import html2pdf from 'html2pdf.js';
 import { 
   LayoutDashboard, 
   FileText, 
@@ -24,7 +25,8 @@ import {
   TrendingUp,
   Trash2,
   Menu,
-  X
+  X,
+  ZoomIn
 } from 'lucide-react';
 import {
   BarChart,
@@ -143,6 +145,7 @@ export default function App() {
   const [adminPassword, setAdminPassword] = useState('');
   const [isUpdatingStatus, setIsUpdatingStatus] = useState<string | null>(null);
   const [isDeleting, setIsDeleting] = useState<string | null>(null);
+  const [previewImage, setPreviewImage] = useState<string | null>(null);
 
   // Form State
   const [formData, setFormData] = useState<FormData>({
@@ -293,14 +296,28 @@ export default function App() {
 
   // Fungsi Jana PDF / Cetak (Native & Stabil)
   const handleGeneratePDF = () => {
-    // Tukar tab ke senarai jika belum
-    if (activeTab !== 'list') {
-      setActiveTab('list');
-      // Tunggu render sekejap
-      setTimeout(() => window.print(), 500);
-    } else {
+    const element = document.getElementById('printable-area');
+    if (!element) return;
+
+    setIsDownloading(true);
+    
+    const opt = {
+      margin: 10,
+      filename: `Laporan_Aduan_SMKK_${new Date().toLocaleDateString('ms-MY')}.pdf`,
+      image: { type: 'jpeg' as const, quality: 0.98 },
+      html2canvas: { scale: 2, useCORS: true },
+      jsPDF: { unit: 'mm', format: 'a4', orientation: 'landscape' as const }
+    };
+
+    // Gunakan html2pdf untuk muat turun fail PDF
+    html2pdf().set(opt).from(element).save().then(() => {
+      setIsDownloading(false);
+    }).catch(err => {
+      console.error('PDF Error:', err);
+      setIsDownloading(false);
+      // Fallback ke print jika html2pdf gagal
       window.print();
-    }
+    });
   };
 
   // Fungsi Padam Laporan (Admin Sahaja)
@@ -509,7 +526,6 @@ export default function App() {
                     className="w-full px-4 py-2.5 rounded-lg border border-slate-200 focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500"
                     autoFocus
                   />
-                  <p className="text-xs text-slate-500 italic">Petunjuk: admin123</p>
                 </div>
                 <button 
                   type="submit"
@@ -860,7 +876,11 @@ export default function App() {
                         </td>
                         <td className="p-4 text-center">
                           {report.gambar && report.gambar.startsWith('http') ? (
-                            <div className="inline-block rounded-lg overflow-hidden border border-slate-200" title="Gambar Kerosakan">
+                            <button 
+                              onClick={() => setPreviewImage(report.gambar)}
+                              className="inline-block rounded-lg overflow-hidden border border-slate-200 hover:ring-2 hover:ring-blue-500 transition-all relative group" 
+                              title="Klik untuk Zoom"
+                            >
                               <img 
                                 src={getThumbnailUrl(report.gambar)} 
                                 alt="Gambar Kerosakan" 
@@ -872,7 +892,10 @@ export default function App() {
                                   target.src = 'data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" width="64" height="64" viewBox="0 0 24 24" fill="none" stroke="%2394a3b8" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect><circle cx="8.5" cy="8.5" r="1.5"></circle><polyline points="21 15 16 10 5 21"></polyline></svg>';
                                 }}
                               />
-                            </div>
+                              <div className="absolute inset-0 bg-black/20 opacity-0 group-hover:opacity-100 flex items-center justify-center transition-opacity">
+                                <ZoomIn className="w-5 h-5 text-white" />
+                              </div>
+                            </button>
                           ) : (
                             <span className="inline-flex items-center justify-center w-16 h-16 bg-slate-100 rounded-lg border border-slate-200 text-xs text-slate-400">Tiada</span>
                           )}
@@ -945,14 +968,17 @@ export default function App() {
                         <div className="flex items-center gap-1"><Calendar className="w-3 h-3"/> {report.tarikh}</div>
                       </div>
                       {report.gambar && report.gambar.startsWith('http') && (
-                        <a href={report.gambar} target="_blank" rel="noopener noreferrer" className="shrink-0 rounded-lg overflow-hidden border border-slate-200">
+                        <button 
+                          onClick={() => setPreviewImage(report.gambar)}
+                          className="shrink-0 rounded-lg overflow-hidden border border-slate-200 active:scale-95 transition-transform"
+                        >
                           <img 
                             src={getThumbnailUrl(report.gambar)} 
                             alt="Kerosakan" 
                             className="w-12 h-12 object-cover"
                             referrerPolicy="no-referrer"
                           />
-                        </a>
+                        </button>
                       )}
                     </div>
                   </div>
@@ -1031,6 +1057,7 @@ export default function App() {
                       id="file-upload" 
                       type="file" 
                       accept="image/*"
+                      capture="environment"
                       onChange={handleFileChange}
                       className="hidden" 
                     />
@@ -1059,6 +1086,35 @@ export default function App() {
                 </button>
               </div>
             </form>
+          </div>
+        )}
+
+        {/* Image Zoom Modal */}
+        {previewImage && (
+          <div 
+            className="fixed inset-0 bg-slate-900/90 backdrop-blur-md z-[200] flex items-center justify-center p-4 animate-in fade-in duration-200"
+            onClick={() => setPreviewImage(null)}
+          >
+            <div className="relative max-w-5xl w-full max-h-[90vh] flex flex-col items-center">
+              <button 
+                onClick={() => setPreviewImage(null)}
+                className="absolute -top-12 right-0 text-white hover:text-slate-300 flex items-center gap-2 font-medium"
+              >
+                <X className="w-6 h-6" />
+                Tutup
+              </button>
+              <div className="w-full h-full overflow-hidden rounded-2xl shadow-2xl bg-white/5 p-2 border border-white/10">
+                <img 
+                  src={previewImage} 
+                  alt="Preview Besar" 
+                  className="w-full h-full object-contain rounded-xl"
+                  referrerPolicy="no-referrer"
+                />
+              </div>
+              <div className="mt-4 text-white text-center">
+                <p className="text-sm opacity-70">Klik di mana-mana untuk tutup</p>
+              </div>
+            </div>
           </div>
         )}
 
