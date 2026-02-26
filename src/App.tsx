@@ -91,8 +91,8 @@ const getThumbnailUrl = (url: string) => {
   // Cari ID fail daripada format /d/ID atau id=ID
   const match = url.match(/\/d\/([a-zA-Z0-9_-]+)/) || url.match(/[?&]id=([a-zA-Z0-9_-]+)/);
   if (match && match[1]) {
-    // Guna endpoint lh3 yang lebih stabil untuk embedding terus dalam tag <img>
-    return `https://lh3.googleusercontent.com/d/${match[1]}`;
+    // Guna endpoint thumbnail yang lebih stabil untuk peranti mudah alih
+    return `https://drive.google.com/thumbnail?id=${match[1]}&sz=w400`;
   }
   return url;
 };
@@ -619,20 +619,21 @@ export default function App() {
                         </div>
                       </div>
                       
-                      {report.gambar && report.gambar.startsWith('http') && (
-                        <a href={report.gambar} target="_blank" rel="noopener noreferrer" className="shrink-0 rounded-lg overflow-hidden border border-slate-200 hover:opacity-80 transition-opacity shadow-sm" title="Lihat Gambar Penuh">
-                          <img 
-                            src={getThumbnailUrl(report.gambar)} 
-                            alt="Kerosakan" 
-                            className="w-16 h-16 object-cover bg-slate-100"
-                            onError={(e) => {
-                              const target = e.target as HTMLImageElement;
-                              target.onerror = null;
-                              target.src = 'data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" width="64" height="64" viewBox="0 0 24 24" fill="none" stroke="%2394a3b8" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect><circle cx="8.5" cy="8.5" r="1.5"></circle><polyline points="21 15 16 10 5 21"></polyline></svg>';
-                            }}
-                          />
-                        </a>
-                      )}
+                          {report.gambar && report.gambar.startsWith('http') && (
+                            <a href={report.gambar} target="_blank" rel="noopener noreferrer" className="shrink-0 rounded-lg overflow-hidden border border-slate-200 hover:opacity-80 transition-opacity shadow-sm" title="Lihat Gambar Penuh">
+                              <img 
+                                src={getThumbnailUrl(report.gambar)} 
+                                alt="Kerosakan" 
+                                className="w-16 h-16 object-cover bg-slate-100"
+                                referrerPolicy="no-referrer"
+                                onError={(e) => {
+                                  const target = e.target as HTMLImageElement;
+                                  target.onerror = null;
+                                  target.src = 'data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" width="64" height="64" viewBox="0 0 24 24" fill="none" stroke="%2394a3b8" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect><circle cx="8.5" cy="8.5" r="1.5"></circle><polyline points="21 15 16 10 5 21"></polyline></svg>';
+                                }}
+                              />
+                            </a>
+                          )}
                     </div>
                   ))}
                   
@@ -864,6 +865,7 @@ export default function App() {
                                 src={getThumbnailUrl(report.gambar)} 
                                 alt="Gambar Kerosakan" 
                                 className="w-16 h-16 object-cover bg-slate-50"
+                                referrerPolicy="no-referrer"
                                 onError={(e) => {
                                   const target = e.target as HTMLImageElement;
                                   target.onerror = null;
@@ -948,6 +950,7 @@ export default function App() {
                             src={getThumbnailUrl(report.gambar)} 
                             alt="Kerosakan" 
                             className="w-12 h-12 object-cover"
+                            referrerPolicy="no-referrer"
                           />
                         </a>
                       )}
