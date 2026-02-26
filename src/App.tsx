@@ -90,11 +90,20 @@ declare global {
 // Fungsi untuk tukar URL Google Drive kepada URL Paparan Terus yang stabil
 const getThumbnailUrl = (url: string) => {
   if (!url) return '';
-  // Cari ID fail daripada format /d/ID atau id=ID
   const match = url.match(/\/d\/([a-zA-Z0-9_-]+)/) || url.match(/[?&]id=([a-zA-Z0-9_-]+)/);
   if (match && match[1]) {
-    // Guna endpoint thumbnail yang lebih stabil untuk peranti mudah alih
-    return `https://drive.google.com/thumbnail?id=${match[1]}&sz=w400`;
+    // Guna endpoint lh3 yang lebih stabil untuk CORS (PDF) dan paparan mobile
+    return `https://lh3.googleusercontent.com/d/${match[1]}=s400`;
+  }
+  return url;
+};
+
+// Fungsi untuk mendapatkan URL gambar terus (untuk zoom)
+const getDirectImageUrl = (url: string) => {
+  if (!url) return '';
+  const match = url.match(/\/d\/([a-zA-Z0-9_-]+)/) || url.match(/[?&]id=([a-zA-Z0-9_-]+)/);
+  if (match && match[1]) {
+    return `https://lh3.googleusercontent.com/d/${match[1]}=s1000`;
   }
   return url;
 };
@@ -642,6 +651,7 @@ export default function App() {
                                 alt="Kerosakan" 
                                 className="w-16 h-16 object-cover bg-slate-100"
                                 referrerPolicy="no-referrer"
+                                crossOrigin="anonymous"
                                 onError={(e) => {
                                   const target = e.target as HTMLImageElement;
                                   target.onerror = null;
@@ -886,6 +896,7 @@ export default function App() {
                                 alt="Gambar Kerosakan" 
                                 className="w-16 h-16 object-cover bg-slate-50"
                                 referrerPolicy="no-referrer"
+                                crossOrigin="anonymous"
                                 onError={(e) => {
                                   const target = e.target as HTMLImageElement;
                                   target.onerror = null;
@@ -977,6 +988,7 @@ export default function App() {
                             alt="Kerosakan" 
                             className="w-12 h-12 object-cover"
                             referrerPolicy="no-referrer"
+                            crossOrigin="anonymous"
                           />
                         </button>
                       )}
@@ -1057,7 +1069,6 @@ export default function App() {
                       id="file-upload" 
                       type="file" 
                       accept="image/*"
-                      capture="environment"
                       onChange={handleFileChange}
                       className="hidden" 
                     />
@@ -1105,7 +1116,7 @@ export default function App() {
               </button>
               <div className="w-full h-full overflow-hidden rounded-2xl shadow-2xl bg-white/5 p-2 border border-white/10">
                 <img 
-                  src={previewImage} 
+                  src={getDirectImageUrl(previewImage)} 
                   alt="Preview Besar" 
                   className="w-full h-full object-contain rounded-xl"
                   referrerPolicy="no-referrer"
