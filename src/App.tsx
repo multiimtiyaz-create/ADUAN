@@ -212,9 +212,9 @@ export default function App() {
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (file) {
-      // Limit file size (contoh max 5MB)
-      if (file.size > 5 * 1024 * 1024) {
-        alert("Saiz gambar terlalu besar! Maksimum 5MB.");
+      // Limit file size (Maks 50MB)
+      if (file.size > 50 * 1024 * 1024) {
+        alert("Saiz gambar terlalu besar! Maksimum 50MB.");
         e.target.value = '';
         return;
       }
@@ -1021,7 +1021,7 @@ export default function App() {
                       <div className="flex flex-col items-center justify-center pt-5 pb-6">
                         <ImageIcon className="w-8 h-8 mb-3 text-slate-400" />
                         <p className="mb-2 text-sm text-slate-500"><span className="font-semibold">Klik untuk muat naik</span></p>
-                        <p className="text-xs text-slate-500">JPG, PNG (Maks 5MB)</p>
+                        <p className="text-xs text-slate-500">JPG, PNG (Maks 50MB)</p>
                       </div>
                     )}
                     <input 

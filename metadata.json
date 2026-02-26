@@ -1,5 +1,5 @@
 {
   "name": "Sistem Aduan Kerosakan SMK KOLOMBONG",
   "description": "Sistem pelaporan kerosakan SMK KOLOMBONG yang berintegrasi dengan Google Sheets untuk pengurusan aduan yang efisien.",
-  "requestFramePermissions": []
+  "requestFramePermissions": ["camera"]
 }
