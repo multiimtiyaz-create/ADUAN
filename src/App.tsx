@@ -22,6 +22,7 @@ import {
   BarChart3,
   PieChart as PieChartIcon,
   TrendingUp,
+  Trash2,
   Menu,
   X
 } from 'lucide-react';
@@ -44,7 +45,7 @@ import {
 // ==========================================
 // SILA MASUKKAN URL GOOGLE APPS SCRIPT ANDA
 // ==========================================
-const SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbxE0Poc9EHgun7YngHyXwUO-7iWlmn6ocKZUGFjI29d34w0zHbYyJ_dnbYgphkRlozX/exec';
+const SCRIPT_URL = 'https://script.google.com/macros/s/AKfycby6kP-MgspGDpeKGzG6OefbajvfsXW0hNSTEmfAs7Ep3-29eVKUbnhDMV1N28rJ8HBW/exec';
 
 const CSV_TEACHERS = 'https://docs.google.com/spreadsheets/d/e/2PACX-1vQK1iQjcMX49LNY0VmT93sFGtC_tn2PgHWjr2WQSZjqIrgGteTAJqebNgwkHmfAXtEPJmnAnUm9onS6/pub?output=csv';
 const CSV_REPORTS = 'https://docs.google.com/spreadsheets/d/e/2PACX-1vQK1iQjcMX49LNY0VmT93sFGtC_tn2PgHWjr2WQSZjqIrgGteTAJqebNgwkHmfAXtEPJmnAnUm9onS6/pub?gid=798141725&single=true&output=csv';
@@ -141,6 +142,7 @@ export default function App() {
   const [showLoginModal, setShowLoginModal] = useState(false);
   const [adminPassword, setAdminPassword] = useState('');
   const [isUpdatingStatus, setIsUpdatingStatus] = useState<string | null>(null);
+  const [isDeleting, setIsDeleting] = useState<string | null>(null);
 
   // Form State
   const [formData, setFormData] = useState<FormData>({
@@ -298,6 +300,32 @@ export default function App() {
       setTimeout(() => window.print(), 500);
     } else {
       window.print();
+    }
+  };
+
+  // Fungsi Padam Laporan (Admin Sahaja)
+  const deleteReport = async (id: string) => {
+    if (!window.confirm(`Adakah anda pasti ingin memadam aduan ${id}? Tindakan ini tidak boleh dibatalkan.`)) {
+      return;
+    }
+
+    setIsDeleting(id);
+    try {
+      await fetch(SCRIPT_URL, {
+        method: 'POST',
+        mode: 'no-cors',
+        headers: { 'Content-Type': 'text/plain' },
+        body: JSON.stringify({ action: 'deleteReport', id })
+      });
+      
+      // Update local state
+      setReports(prev => prev.filter(r => r.id !== id));
+      alert(`Aduan ${id} berjaya dipadam.`);
+    } catch (error) {
+      console.error('Error deleting report:', error);
+      alert('Gagal memadam aduan. Sila cuba lagi.');
+    } finally {
+      setIsDeleting(null);
     }
   };
 
@@ -790,12 +818,13 @@ export default function App() {
                       <th className="p-4 font-semibold">Jenis Kerosakan</th>
                       <th className="p-4 font-semibold">Status</th>
                       <th className="p-4 font-semibold text-center">Gambar</th>
+                      {isAdmin && <th className="p-4 font-semibold text-center">Tindakan</th>}
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-100">
                     {isLoadingData ? (
                       <tr>
-                        <td colSpan={7} className="p-8 text-center text-slate-500">
+                        <td colSpan={isAdmin ? 8 : 7} className="p-8 text-center text-slate-500">
                           <div className="flex flex-col items-center justify-center">
                             <Loader2 className="w-6 h-6 animate-spin mb-2" />
                             Memuat turun...
@@ -846,6 +875,18 @@ export default function App() {
                             <span className="inline-flex items-center justify-center w-16 h-16 bg-slate-100 rounded-lg border border-slate-200 text-xs text-slate-400">Tiada</span>
                           )}
                         </td>
+                        {isAdmin && (
+                          <td className="p-4 text-center">
+                            <button 
+                              onClick={() => deleteReport(report.id)}
+                              disabled={isDeleting === report.id}
+                              className="p-2 text-red-500 hover:bg-red-50 rounded-lg transition-colors disabled:opacity-50"
+                              title="Padam Aduan"
+                            >
+                              {isDeleting === report.id ? <Loader2 className="w-4 h-4 animate-spin" /> : <Trash2 className="w-4 h-4" />}
+                            </button>
+                          </td>
+                        )}
                       </tr>
                     ))}
                   </tbody>
@@ -867,17 +908,26 @@ export default function App() {
                         <h4 className="font-bold text-slate-800">{report.tempat}</h4>
                       </div>
                       {isAdmin ? (
-                        <select 
-                          value={report.status || 'Baru'}
-                          disabled={isUpdatingStatus === report.id}
-                          onChange={(e) => updateReportStatus(report.id, e.target.value)}
-                          className={`text-[10px] font-bold px-2 py-1 rounded border ${getStatusColor(report.status)}`}
-                        >
-                          <option value="Baru">Baru</option>
-                          <option value="Dalam Proses">Dalam Proses</option>
-                          <option value="Selesai">Selesai</option>
-                          <option value="Ditolak">Ditolak</option>
-                        </select>
+                        <div className="flex items-center gap-2">
+                          <select 
+                            value={report.status || 'Baru'}
+                            disabled={isUpdatingStatus === report.id}
+                            onChange={(e) => updateReportStatus(report.id, e.target.value)}
+                            className={`text-[10px] font-bold px-2 py-1 rounded border ${getStatusColor(report.status)}`}
+                          >
+                            <option value="Baru">Baru</option>
+                            <option value="Dalam Proses">Dalam Proses</option>
+                            <option value="Selesai">Selesai</option>
+                            <option value="Ditolak">Ditolak</option>
+                          </select>
+                          <button 
+                            onClick={() => deleteReport(report.id)}
+                            disabled={isDeleting === report.id}
+                            className="p-1.5 text-red-500 hover:bg-red-50 rounded border border-red-100 transition-colors disabled:opacity-50"
+                          >
+                            {isDeleting === report.id ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Trash2 className="w-3.5 h-3.5" />}
+                          </button>
+                        </div>
                       ) : (
                         <span className={`text-[10px] uppercase tracking-wider font-bold px-2 py-1 rounded border ${getStatusColor(report.status)}`}>
                           {report.status || 'Baru'}
