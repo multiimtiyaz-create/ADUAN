@@ -47,7 +47,7 @@ import {
 // ==========================================
 // SILA MASUKKAN URL GOOGLE APPS SCRIPT ANDA
 // ==========================================
-const SCRIPT_URL = 'https://script.google.com/macros/s/AKfycby6kP-MgspGDpeKGzG6OefbajvfsXW0hNSTEmfAs7Ep3-29eVKUbnhDMV1N28rJ8HBW/exec';
+const SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbxzhSVIfbGaesI0DL4s-8nchzwtOel88HN0aSZfvjpcwq1dOFRM11RHwVgqskuEOUjL/exec';
 
 const CSV_TEACHERS = 'https://docs.google.com/spreadsheets/d/e/2PACX-1vQK1iQjcMX49LNY0VmT93sFGtC_tn2PgHWjr2WQSZjqIrgGteTAJqebNgwkHmfAXtEPJmnAnUm9onS6/pub?output=csv';
 const CSV_REPORTS = 'https://docs.google.com/spreadsheets/d/e/2PACX-1vQK1iQjcMX49LNY0VmT93sFGtC_tn2PgHWjr2WQSZjqIrgGteTAJqebNgwkHmfAXtEPJmnAnUm9onS6/pub?gid=798141725&single=true&output=csv';
@@ -58,18 +58,22 @@ interface Report {
   namaGuru: string;
   tempat: string;
   jenisKerosakan: string;
-  gambar: string;
+  gambar: string[]; // Senarai URL gambar
   status: string;
+}
+
+interface ImageUpload {
+  base64: string;
+  name: string;
+  mimeType: string;
+  preview: string | null;
 }
 
 interface FormData {
   namaGuru: string;
   tempat: string;
   jenisKerosakan: string;
-  gambarBase64: string;
-  gambarName: string;
-  mimeType: string;
-  gambarPreview: string | null;
+  images: ImageUpload[];
 }
 
 // Extend Window interface for html2pdf
@@ -161,10 +165,7 @@ export default function App() {
     namaGuru: '',
     tempat: '',
     jenisKerosakan: '',
-    gambarBase64: '',
-    gambarName: '',
-    mimeType: '',
-    gambarPreview: null
+    images: Array(5).fill(null).map(() => ({ base64: '', name: '', mimeType: '', preview: null }))
   });
 
   // Muat turun data Guru & Laporan Kerosakan dari Google Sheets
@@ -186,24 +187,83 @@ export default function App() {
         // 2. Ambil data Laporan (gid=798141725)
         const resReports = await fetch(CSV_REPORTS);
         const textReports = await resReports.text();
-        const rowsR = textReports.split('\n').map(r => r.trim()).filter(r => r);
         
-        // Parse Laporan: ID | TARIKH | NAMA GURU | TEMPAT | JENIS KEROSAKAN | GAMBAR | STATUS
-        const reportList: Report[] = rowsR.slice(1).map(row => {
-          // Guna regex yang lebih baik untuk pecahkan CSV (tidak pecah pada ruang kosong)
-          const cols = row.match(/(".*?"|[^",]+)(?=\s*,|\s*$)/g) || row.split(',');
-          const clean = (str: string) => str ? str.replace(/^"|"$/g, '').trim() : '';
+        // Fungsi untuk parse CSV yang menyokong sel berbilang baris (enclosed in quotes)
+        const parseCSV = (text: string) => {
+          const rows: string[][] = [];
+          let row: string[] = [];
+          let col = "";
+          let inQuotes = false;
           
+          for (let i = 0; i < text.length; i++) {
+            const char = text[i];
+            const nextChar = text[i + 1];
+            
+            if (char === '"' && inQuotes && nextChar === '"') {
+              col += '"';
+              i++; // Skip next quote
+            } else if (char === '"') {
+              inQuotes = !inQuotes;
+            } else if (char === ',' && !inQuotes) {
+              row.push(col);
+              col = "";
+            } else if ((char === '\r' || char === '\n') && !inQuotes) {
+              if (col !== "" || row.length > 0) {
+                row.push(col);
+                rows.push(row);
+                row = [];
+                col = "";
+              }
+              if (char === '\r' && nextChar === '\n') i++; // Handle CRLF
+            } else {
+              col += char;
+            }
+          }
+          if (col !== "" || row.length > 0) {
+            row.push(col);
+            rows.push(row);
+          }
+          return rows;
+        };
+
+        const parsedData = parseCSV(textReports);
+        
+        // Parse Laporan: ID | TARIKH | NAMA GURU | TEMPAT | JENIS KEROSAKAN | GAMBAR1-5 | STATUS
+        const reportList: Report[] = parsedData.slice(1).map(cols => {
+          const clean = (str: string) => str ? str.trim() : '';
+          
+          let allGambar: string[] = [];
+          let statusResult = 'Baru';
+
+          // Detect format based on content
+          const col6 = clean(cols[6]);
+          const col10 = clean(cols[10]);
+          const statusOptions = ['Baru', 'Dalam Proses', 'Selesai', 'Ditolak'];
+
+          if (statusOptions.includes(col6) && !col10) {
+            // Old Format: Status is at column 6
+            const g = clean(cols[5]);
+            if (g && (g.startsWith('http') || g.includes('drive.google.com'))) allGambar.push(g);
+            statusResult = col6;
+          } else {
+            // New Format or default: Status is at column 10
+            for (let i = 5; i <= 9; i++) {
+              const g = clean(cols[i]);
+              if (g && (g.startsWith('http') || g.includes('drive.google.com'))) allGambar.push(g);
+            }
+            statusResult = col10 || col6 || 'Baru';
+          }
+
           return {
             id: clean(cols[0]),
             tarikh: formatDate(clean(cols[1])),
             namaGuru: clean(cols[2]),
             tempat: clean(cols[3]),
             jenisKerosakan: clean(cols[4]),
-            gambar: clean(cols[5]),
-            status: clean(cols[6]) || 'Baru'
+            gambar: allGambar,
+            status: statusResult
           };
-        }).reverse(); // Reverse supaya yang terbaru di atas
+        }).filter(r => r.id).reverse();
 
         setReports(reportList);
       } catch (error) {
@@ -221,10 +281,9 @@ export default function App() {
     setFormData(prev => ({ ...prev, [name]: value }));
   };
 
-  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>, index: number) => {
     const file = e.target.files?.[0];
     if (file) {
-      // Limit file size (Maks 50MB)
       if (file.size > 50 * 1024 * 1024) {
         alert("Saiz gambar terlalu besar! Maksimum 50MB.");
         e.target.value = '';
@@ -233,16 +292,26 @@ export default function App() {
 
       const reader = new FileReader();
       reader.onloadend = () => {
-        setFormData(prev => ({
-          ...prev,
-          gambarName: file.name,
+        const newImages = [...formData.images];
+        newImages[index] = {
+          name: file.name,
           mimeType: file.type,
-          gambarBase64: reader.result as string,
-          gambarPreview: URL.createObjectURL(file)
-        }));
+          base64: reader.result as string,
+          preview: URL.createObjectURL(file)
+        };
+        setFormData(prev => ({ ...prev, images: newImages }));
       };
       reader.readAsDataURL(file);
     }
+  };
+
+  const removeImage = (index: number) => {
+    const newImages = [...formData.images];
+    newImages[index] = { base64: '', name: '', mimeType: '', preview: null };
+    setFormData(prev => ({ ...prev, images: newImages }));
+    // Reset file input if exists
+    const input = document.getElementById(`file-upload-${index}`) as HTMLInputElement;
+    if (input) input.value = '';
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -250,28 +319,33 @@ export default function App() {
     if (isSubmitting) return;
     setIsSubmitting(true);
     
-    // Hantar data ke Google Apps Script API
     try {
+      const payload = {
+        action: 'addReport',
+        namaGuru: formData.namaGuru,
+        tempat: formData.tempat,
+        jenisKerosakan: formData.jenisKerosakan,
+        images: formData.images.filter(img => img.base64).map(img => ({
+          base64: img.base64,
+          name: img.name,
+          mimeType: img.mimeType
+        }))
+      };
+
       await fetch(SCRIPT_URL, {
         method: 'POST',
-        mode: 'no-cors', // elak isu CORS block dari browser
-        headers: {
-          'Content-Type': 'text/plain',
-        },
-        body: JSON.stringify({
-          ...formData,
-          action: 'addReport'
-        })
+        mode: 'no-cors',
+        headers: { 'Content-Type': 'text/plain' },
+        body: JSON.stringify(payload)
       });
       
-      // Cipta laporan mock tempatan sementara tunggu cache Google Sheets update (ambil masa ~5 minit)
       const mockNewReport: Report = {
-        id: 'Tunggu Update',
+        id: 'Sedang Proses...',
         tarikh: new Date().toLocaleDateString('ms-MY'),
         namaGuru: formData.namaGuru,
         tempat: formData.tempat,
         jenisKerosakan: formData.jenisKerosakan,
-        gambar: formData.gambarPreview ? 'Sedang Dimuat Naik...' : 'Tiada Gambar',
+        gambar: formData.images.filter(img => img.preview).map(() => 'local-preview'),
         status: 'Baru'
       };
       setReports([mockNewReport, ...reports]);
@@ -284,15 +358,8 @@ export default function App() {
         namaGuru: '',
         tempat: '',
         jenisKerosakan: '',
-        gambarBase64: '',
-        gambarName: '',
-        mimeType: '',
-        gambarPreview: null
+        images: Array(5).fill(null).map(() => ({ base64: '', name: '', mimeType: '', preview: null }))
       });
-      
-      // Kosongkan input file
-      const fileInput = document.getElementById('file-upload') as HTMLInputElement;
-      if (fileInput) fileInput.value = '';
       
       setActiveTab('list');
     } catch (error) {
@@ -637,31 +704,39 @@ export default function App() {
                             {report.status || 'Baru'}
                           </span>
                         </div>
-                        <p className="text-slate-700 text-sm mb-2 font-medium">{report.jenisKerosakan}</p>
+                        <p className="text-slate-700 text-sm mb-2 font-medium whitespace-pre-wrap">{report.jenisKerosakan}</p>
                         <div className="flex items-center gap-4 text-xs text-slate-500">
                           <span className="flex items-center gap-1"><User className="w-3 h-3"/> {report.namaGuru}</span>
                           <span className="flex items-center gap-1"><Calendar className="w-3 h-3"/> {report.tarikh}</span>
                         </div>
                       </div>
-                      
-                          {report.gambar && report.gambar.startsWith('http') && (
-                            <a href={report.gambar} target="_blank" rel="noopener noreferrer" className="shrink-0 rounded-lg overflow-hidden border border-slate-200 hover:opacity-80 transition-opacity shadow-sm" title="Lihat Gambar Penuh">
-                              <img 
-                                src={getThumbnailUrl(report.gambar)} 
-                                alt="Kerosakan" 
-                                className="w-16 h-16 object-cover bg-slate-100"
-                                referrerPolicy="no-referrer"
-                                crossOrigin="anonymous"
-                                onError={(e) => {
-                                  const target = e.target as HTMLImageElement;
-                                  target.onerror = null;
-                                  target.src = 'data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" width="64" height="64" viewBox="0 0 24 24" fill="none" stroke="%2394a3b8" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect><circle cx="8.5" cy="8.5" r="1.5"></circle><polyline points="21 15 16 10 5 21"></polyline></svg>';
-                                }}
-                              />
-                            </a>
-                          )}
+                                         <div className="flex flex-wrap gap-2 shrink-0">
+                      {report.gambar && report.gambar.length > 0 ? report.gambar.map((imgUrl, i) => (
+                        <button 
+                          key={i}
+                          onClick={() => setPreviewImage(imgUrl)}
+                          className="shrink-0 rounded-lg overflow-hidden border border-slate-200 hover:opacity-80 transition-opacity shadow-sm"
+                          title="Lihat Gambar Penuh"
+                        >
+                          <img 
+                            src={getThumbnailUrl(imgUrl)} 
+                            alt={`Kerosakan ${i+1}`} 
+                            className="w-12 h-12 sm:w-16 sm:h-16 object-cover bg-slate-100"
+                            referrerPolicy="no-referrer"
+                            crossOrigin="anonymous"
+                            onError={(e) => {
+                              const target = e.target as HTMLImageElement;
+                              target.onerror = null;
+                              target.src = 'data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" width="64" height="64" viewBox="0 0 24 24" fill="none" stroke="%2394a3b8" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect><circle cx="8.5" cy="8.5" r="1.5"></circle><polyline points="21 15 16 10 5 21"></polyline></svg>';
+                            }}
+                          />
+                        </button>
+                      )) : (
+                        <span className="text-[10px] text-slate-400 italic">Tiada Gambar</span>
+                      )}
                     </div>
-                  ))}
+                  </div>
+                ))}
                   
                   {reports.length === 0 && (
                      <div className="p-8 text-center text-slate-500">
@@ -864,7 +939,7 @@ export default function App() {
                         <td className="p-4 text-sm text-slate-600 whitespace-nowrap">{report.tarikh}</td>
                         <td className="p-4 text-sm font-medium text-slate-800">{report.namaGuru}</td>
                         <td className="p-4 text-sm text-slate-600">{report.tempat}</td>
-                        <td className="p-4 text-sm text-slate-800 max-w-xs">{report.jenisKerosakan}</td>
+                        <td className="p-4 text-sm text-slate-800 max-w-xs whitespace-pre-wrap">{report.jenisKerosakan}</td>
                         <td className="p-4">
                           {isAdmin ? (
                             <select 
@@ -884,32 +959,35 @@ export default function App() {
                             </span>
                           )}
                         </td>
-                        <td className="p-4 text-center">
-                          {report.gambar && report.gambar.startsWith('http') ? (
-                            <button 
-                              onClick={() => setPreviewImage(report.gambar)}
-                              className="inline-block rounded-lg overflow-hidden border border-slate-200 hover:ring-2 hover:ring-blue-500 transition-all relative group" 
-                              title="Klik untuk Zoom"
-                            >
-                              <img 
-                                src={getThumbnailUrl(report.gambar)} 
-                                alt="Gambar Kerosakan" 
-                                className="w-16 h-16 object-cover bg-slate-50"
-                                referrerPolicy="no-referrer"
-                                crossOrigin="anonymous"
-                                onError={(e) => {
-                                  const target = e.target as HTMLImageElement;
-                                  target.onerror = null;
-                                  target.src = 'data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" width="64" height="64" viewBox="0 0 24 24" fill="none" stroke="%2394a3b8" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect><circle cx="8.5" cy="8.5" r="1.5"></circle><polyline points="21 15 16 10 5 21"></polyline></svg>';
-                                }}
-                              />
-                              <div className="absolute inset-0 bg-black/20 opacity-0 group-hover:opacity-100 flex items-center justify-center transition-opacity">
-                                <ZoomIn className="w-5 h-5 text-white" />
-                              </div>
-                            </button>
-                          ) : (
-                            <span className="inline-flex items-center justify-center w-16 h-16 bg-slate-100 rounded-lg border border-slate-200 text-xs text-slate-400">Tiada</span>
-                          )}
+                        <td className="p-4">
+                          <div className="flex flex-wrap gap-1 justify-center">
+                            {report.gambar && report.gambar.length > 0 ? report.gambar.map((imgUrl, i) => (
+                              <button 
+                                key={i}
+                                onClick={() => setPreviewImage(imgUrl)}
+                                className="inline-block rounded-lg overflow-hidden border border-slate-200 hover:ring-2 hover:ring-blue-500 transition-all relative group" 
+                                title="Klik untuk Zoom"
+                              >
+                                <img 
+                                  src={getThumbnailUrl(imgUrl)} 
+                                  alt={`Gambar ${i+1}`} 
+                                  className="w-12 h-12 object-cover bg-slate-50"
+                                  referrerPolicy="no-referrer"
+                                  crossOrigin="anonymous"
+                                  onError={(e) => {
+                                    const target = e.target as HTMLImageElement;
+                                    target.onerror = null;
+                                    target.src = 'data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" width="64" height="64" viewBox="0 0 24 24" fill="none" stroke="%2394a3b8" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect><circle cx="8.5" cy="8.5" r="1.5"></circle><polyline points="21 15 16 10 5 21"></polyline></svg>';
+                                  }}
+                                />
+                                <div className="absolute inset-0 bg-black/20 opacity-0 group-hover:opacity-100 flex items-center justify-center transition-opacity">
+                                  <ZoomIn className="w-4 h-4 text-white" />
+                                </div>
+                              </button>
+                            )) : (
+                              <span className="text-xs text-slate-400">Tiada</span>
+                            )}
+                          </div>
                         </td>
                         {isAdmin && (
                           <td className="p-4 text-center">
@@ -971,27 +1049,33 @@ export default function App() {
                       )}
                     </div>
                     
-                    <p className="text-sm text-slate-700">{report.jenisKerosakan}</p>
+                    <p className="text-sm text-slate-700 whitespace-pre-wrap">{report.jenisKerosakan}</p>
+                    
+                    <div className="flex flex-wrap gap-2 pt-1">
+                      {report.gambar && report.gambar.length > 0 ? report.gambar.map((imgUrl, i) => (
+                        <button 
+                          key={i}
+                          onClick={() => setPreviewImage(imgUrl)}
+                          className="shrink-0 rounded-lg overflow-hidden border border-slate-200 active:scale-95 transition-transform"
+                        >
+                          <img 
+                            src={getThumbnailUrl(imgUrl)} 
+                            alt={`Kerosakan ${i+1}`} 
+                            className="w-14 h-14 object-cover"
+                            referrerPolicy="no-referrer"
+                            crossOrigin="anonymous"
+                          />
+                        </button>
+                      )) : (
+                        <span className="text-xs text-slate-400 italic">Tiada Gambar</span>
+                      )}
+                    </div>
                     
                     <div className="flex items-center justify-between text-xs text-slate-500">
                       <div className="space-y-1">
                         <div className="flex items-center gap-1"><User className="w-3 h-3"/> {report.namaGuru}</div>
                         <div className="flex items-center gap-1"><Calendar className="w-3 h-3"/> {report.tarikh}</div>
                       </div>
-                      {report.gambar && report.gambar.startsWith('http') && (
-                        <button 
-                          onClick={() => setPreviewImage(report.gambar)}
-                          className="shrink-0 rounded-lg overflow-hidden border border-slate-200 active:scale-95 transition-transform"
-                        >
-                          <img 
-                            src={getThumbnailUrl(report.gambar)} 
-                            alt="Kerosakan" 
-                            className="w-12 h-12 object-cover"
-                            referrerPolicy="no-referrer"
-                            crossOrigin="anonymous"
-                          />
-                        </button>
-                      )}
                     </div>
                   </div>
                 ))}
@@ -1052,31 +1136,44 @@ export default function App() {
                 ></textarea>
               </div>
 
-              <div className="space-y-2">
-                <label className="text-sm font-semibold text-slate-700">Muat Naik Gambar (Pilihan)</label>
-                <div className="flex items-center justify-center w-full">
-                  <label htmlFor="file-upload" className="flex flex-col items-center justify-center w-full h-32 border-2 border-slate-300 border-dashed rounded-lg cursor-pointer bg-slate-50 hover:bg-slate-100 relative overflow-hidden">
-                    {formData.gambarPreview ? (
-                       <img src={formData.gambarPreview} alt="Preview" className="w-full h-full object-cover opacity-50" />
-                    ) : (
-                      <div className="flex flex-col items-center justify-center pt-5 pb-6">
-                        <ImageIcon className="w-8 h-8 mb-3 text-slate-400" />
-                        <p className="mb-2 text-sm text-slate-500"><span className="font-semibold">Klik untuk muat naik</span></p>
-                        <p className="text-xs text-slate-500">JPG, PNG (Maks 50MB)</p>
-                      </div>
-                    )}
-                    <input 
-                      id="file-upload" 
-                      type="file" 
-                      accept="image/*"
-                      onChange={handleFileChange}
-                      className="hidden" 
-                    />
-                  </label>
+              <div className="space-y-4">
+                <label className="text-sm font-semibold text-slate-700">Muat Naik Gambar (Maksimum 5)</label>
+                <div className="grid grid-cols-2 sm:grid-cols-5 gap-4">
+                  {formData.images.map((img, idx) => (
+                    <div key={idx} className="relative">
+                      <label 
+                        htmlFor={`file-upload-${idx}`} 
+                        className={`flex flex-col items-center justify-center w-full h-24 border-2 border-dashed rounded-xl cursor-pointer transition-all ${img.preview ? 'border-blue-400 bg-blue-50' : 'border-slate-300 bg-slate-50 hover:bg-slate-100'}`}
+                      >
+                        {img.preview ? (
+                          <div className="relative w-full h-full p-1">
+                            <img src={img.preview} alt={`Preview ${idx+1}`} className="w-full h-full object-cover rounded-lg" />
+                            <button 
+                              type="button"
+                              onClick={(e) => { e.preventDefault(); removeImage(idx); }}
+                              className="absolute -top-2 -right-2 bg-red-500 text-white rounded-full p-1 shadow-lg hover:bg-red-600 transition-colors"
+                            >
+                              <X className="w-3 h-3" />
+                            </button>
+                          </div>
+                        ) : (
+                          <div className="flex flex-col items-center justify-center py-2 text-slate-400">
+                            <ImageIcon className="w-6 h-6 mb-1" />
+                            <span className="text-[10px] font-medium">Slot {idx+1}</span>
+                          </div>
+                        )}
+                        <input 
+                          id={`file-upload-${idx}`} 
+                          type="file" 
+                          accept="image/*"
+                          onChange={(e) => handleFileChange(e, idx)}
+                          className="hidden" 
+                        />
+                      </label>
+                    </div>
+                  ))}
                 </div>
-                {formData.gambarName && (
-                  <p className="text-sm text-green-600 font-medium text-center mt-2">✓ Gambar Dipilih: {formData.gambarName}</p>
-                )}
+                <p className="text-[10px] text-slate-500 text-center">Format: JPG, PNG. Maksimum 50MB setiap gambar.</p>
               </div>
 
               <div className="pt-4 border-t border-slate-100 flex justify-end gap-3">
