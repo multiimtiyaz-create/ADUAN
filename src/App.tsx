@@ -1,6 +1,6 @@
 /**
- * @license
- * SPDX-License-Identifier: Apache-2.0
+ * SISTEM ADUAN KEROSAKAN SMK KOLOMBONG
+ * Updated: 16 May 2026 (v1.1.0)
  */
 
 import React, { useState, useEffect } from 'react';
